@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.eggs/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets and local config
+.env
+.env.*
+
+# Run artifacts produced by the examples
+*.run.json
+examples/**/runs/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+
+# Agent workflow packets
+.ai/

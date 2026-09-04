@@ -1,0 +1,5 @@
+# The bookshop demo server with its original, deliberately imperfect tool contracts.
+# ${TOOLASSAY_PYTHON} expands to the interpreter running toolassay.
+transport: stdio
+command: ${TOOLASSAY_PYTHON}
+args: ["-m", "toolassay.demo.server", "--contracts", "v1"]

@@ -1,0 +1,4 @@
+# The same demo server with its tool contracts repaired. The tools do the same work.
+transport: stdio
+command: ${TOOLASSAY_PYTHON}
+args: ["-m", "toolassay.demo.server", "--contracts", "v2"]

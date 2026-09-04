@@ -1,0 +1,51 @@
+# Cases for the bookshop demo. The same file runs against both contract versions.
+system: >-
+  You are the assistant for a small bookshop. Use the tools to answer questions about the
+  catalogue and to make reservations. Keep answers short and quote the concrete values you
+  found (titles, prices, shelf codes, stock counts, reservation ids).
+max_turns: 8
+cases:
+  - id: find-by-author
+    prompt: Do you have any books by Mara Quill?
+    expected_tools: [find_book]
+    expected_substrings: ["The Quiet Lantern"]
+
+  - id: price-by-id
+    prompt: What does book BK-0007 cost?
+    expected_tools: [get_book]
+    expected_args:
+      get_book: { book_id: BK-0007 }
+    expected_substrings: ["12.50"]
+
+  - id: shelf-location
+    prompt: Where is "The Quiet Lantern" shelved?
+    expected_tools: [find_book, get_book]
+    expected_substrings: ["P3"]
+
+  - id: stock-count
+    prompt: How many copies of "The Quiet Lantern" are in stock?
+    expected_tools: [find_book]
+    tool_match: contains
+    expected_substrings: ["7"]
+
+  - id: cheapest-poetry
+    prompt: What is the cheapest book in the Poetry section?
+    expected_tools: [list_inventory]
+    expected_substrings: ["Salt and Ember"]
+
+  - id: reserve-with-date
+    prompt: Reserve BK-0088 for pat@example.com, for pickup on 12 September 2026.
+    expected_tools: [reserve_book]
+    expected_args:
+      reserve_book:
+        book_id: BK-0088
+        customer_email: pat@example.com
+        pickup_date: "2026-09-12"
+    expected_substrings: ["RSV-"]
+
+  - id: unknown-title
+    prompt: Is "The Copper Almanac of Nowhere" in stock?
+    expected_tools: [find_book]
+    judge: >-
+      The answer states clearly that no such book was found in the catalogue and does not
+      invent a title, price, or stock count for it.

@@ -1,0 +1,6 @@
+# Connect to a demo server that is already running over streamable HTTP:
+#   toolassay-demo-server --contracts v2 --transport http --port 8765
+transport: http
+url: http://127.0.0.1:8765/mcp
+# headers:
+#   Authorization: Bearer ${BOOKSHOP_TOKEN}
