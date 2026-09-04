@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx2
 import yaml
@@ -129,13 +130,9 @@ def load_server_config(path: Path) -> StdioServerConfig | HttpServerConfig:
 
 def safe_url(url: str) -> str:
     """A URL with userinfo, query, and fragment removed, safe to print or export."""
-    scheme, sep, rest = url.partition("://")
-    if not sep:
-        return url.split("?", 1)[0].split("#", 1)[0]
-    netloc, slash, remainder = rest.partition("/")
-    netloc = netloc.rpartition("@")[2]
-    path = remainder.split("?", 1)[0].split("#", 1)[0]
-    return f"{scheme}://{netloc}{slash}{path}"
+    parts = urlsplit(url)
+    netloc = parts.netloc.rpartition("@")[2]
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
 def redacted_config(config: StdioServerConfig | HttpServerConfig) -> dict[str, Any]:

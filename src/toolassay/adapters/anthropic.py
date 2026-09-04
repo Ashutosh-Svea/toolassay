@@ -31,7 +31,15 @@ DEFAULT_MODEL = "claude-opus-5"
 logger = logging.getLogger(__name__)
 
 _SCHEMA_CHILD_LISTS = ("anyOf", "oneOf", "allOf", "prefixItems")
-_SCHEMA_CHILD_MAPS = ("properties", "$defs", "definitions", "patternProperties", "dependentSchemas")
+_SCHEMA_CHILD_MAPS = (
+    "properties",
+    "$defs",
+    "definitions",
+    "patternProperties",
+    "dependentSchemas",
+    "dependencies",
+)
+_OPEN_PROPERTY_KEYWORDS = ("additionalProperties", "unevaluatedProperties")
 _SCHEMA_CHILD_NODES = (
     "items",
     "additionalItems",
@@ -68,9 +76,11 @@ def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
 def _is_object_node(node: dict[str, Any]) -> bool:
     node_type = node.get("type")
-    if node_type == "object" or "properties" in node:
+    if node_type == "object":
         return True
-    return isinstance(node_type, list) and "object" in node_type
+    if isinstance(node_type, list) and "object" in node_type:
+        return True
+    return any(key in node for key in ("properties", "patternProperties", "required"))
 
 
 def _close_objects(node: Any, path: str) -> None:
@@ -80,13 +90,14 @@ def _close_objects(node: Any, path: str) -> None:
         return
     if not isinstance(node, dict):
         return
-    if _is_object_node(node):
-        declared = node.get("additionalProperties")
+    for keyword in _OPEN_PROPERTY_KEYWORDS:
+        declared = node.get(keyword)
         if declared is not None and declared is not False:
             raise StrictSchemaError(
-                f"{path} allows additional properties ({declared!r}); "
+                f"{path} allows extra properties ({keyword}={declared!r}); "
                 "strict mode can only express additionalProperties: false"
             )
+    if _is_object_node(node):
         node["additionalProperties"] = False
     for key in _SCHEMA_CHILD_MAPS:
         children = node.get(key)

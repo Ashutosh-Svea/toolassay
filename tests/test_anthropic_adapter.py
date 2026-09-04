@@ -324,3 +324,36 @@ async def test_open_schemas_fall_back_to_non_strict_per_tool(
         "type": "object",
         "additionalProperties": True,
     }
+
+
+def test_strict_schema_refuses_open_nodes_without_an_object_type() -> None:
+    untyped = {"type": "object", "properties": {"payload": {"additionalProperties": True}}}
+    with pytest.raises(StrictSchemaError, match=r"\$\.properties\.payload"):
+        strict_schema(untyped)
+    unevaluated = {"type": "object", "properties": {}, "unevaluatedProperties": True}
+    with pytest.raises(StrictSchemaError, match="unevaluatedProperties"):
+        strict_schema(unevaluated)
+    legacy = {
+        "type": "object",
+        "properties": {"a": {"type": "string"}},
+        "dependencies": {"a": {"properties": {"b": {"type": "string"}}}},
+    }
+    closed = strict_schema(legacy)
+    assert closed["dependencies"]["a"]["additionalProperties"] is False
+    required_only = {"required": ["x"]}
+    assert strict_schema(required_only)["additionalProperties"] is False
+
+
+async def test_untyped_open_nodes_relax_the_tool(
+    client: tuple[AsyncAnthropic, FakeMessages],
+) -> None:
+    sdk_client, fake = client
+    adapter = AnthropicAdapter(client=sdk_client)
+    tool = ToolDefinition(
+        name="payload",
+        input_schema={"type": "object", "properties": {"payload": {"additionalProperties": True}}},
+    )
+    conversation = adapter.start(system=None, tools=[tool])
+    assert adapter.relaxed_tools == ("payload",)
+    await conversation.send_user("hi")
+    assert "strict" not in fake.calls[0]["tools"][0]

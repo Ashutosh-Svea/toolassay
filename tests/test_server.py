@@ -212,10 +212,21 @@ async def test_http_transport_with_headers(http_demo_server: int) -> None:
         assert len(await connection.list_tools()) == 4
 
 
-def test_safe_url_strips_userinfo_query_and_fragment() -> None:
-    assert safe_url("https://user:secret@host:8443/mcp?token=abc#frag") == "https://host:8443/mcp"
-    assert safe_url("http://${HOST}:8765/mcp") == "http://${HOST}:8765/mcp"
-    assert safe_url("host/mcp?x=1") == "host/mcp"
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://user:secret@host:8443/mcp?token=abc#frag", "https://host:8443/mcp"),
+        ("http://${HOST}:8765/mcp", "http://${HOST}:8765/mcp"),
+        ("host/mcp?x=1", "host/mcp"),
+        ("https://host?token=s3cret", "https://host"),
+        ("https://host#token=s3cret", "https://host"),
+        ("https://u:p@host?x=1", "https://host"),
+        ("https://Host.Example:8443", "https://Host.Example:8443"),
+    ],
+)
+def test_safe_url_strips_userinfo_query_and_fragment(url: str, expected: str) -> None:
+    assert safe_url(url) == expected
+    assert "s3cret" not in safe_url(url)
 
 
 def test_redacted_config_keeps_the_document_as_written() -> None:
