@@ -222,6 +222,12 @@ async def test_http_transport_with_headers(http_demo_server: int) -> None:
         ("https://host#token=s3cret", "https://host"),
         ("https://u:p@host?x=1", "https://host"),
         ("https://Host.Example:8443", "https://Host.Example:8443"),
+        (
+            "${SCHEME}://user:s3cret@127.0.0.1:8765/mcp?token=s3cret#f",
+            "${SCHEME}://127.0.0.1:8765/mcp",
+        ),
+        ("https://host#user:s3cret@evil", "https://host"),
+        ("https://user:s3cret@host", "https://host"),
     ],
 )
 def test_safe_url_strips_userinfo_query_and_fragment(url: str, expected: str) -> None:
@@ -265,3 +271,17 @@ def test_redacted_config_without_a_document_masks_what_it_can() -> None:
     }
     stdio = StdioServerConfig(command="python", args=["-m", "x"])
     assert McpToolServer(stdio).address == "python -m x"
+
+
+def test_interpolated_scheme_still_redacts_userinfo_in_artifacts() -> None:
+    http = parse_server_config(
+        {"transport": "http", "url": "${SCHEME}://user:s3cret@host:8765/mcp?key=${TOKEN}"},
+        environ={"SCHEME": "https", "TOKEN": "t0ken"},
+    )
+    assert isinstance(http, HttpServerConfig)
+    assert http.url == "https://user:s3cret@host:8765/mcp?key=t0ken"
+    redacted = json.dumps(redacted_config(http))
+    assert "s3cret" not in redacted
+    assert "t0ken" not in redacted
+    assert redacted_config(http)["url"] == "${SCHEME}://host:8765/mcp"
+    assert McpToolServer(http).address == "https://host:8765/mcp"

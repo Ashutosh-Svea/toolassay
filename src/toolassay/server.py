@@ -11,7 +11,6 @@ from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Annotated, Any, Literal
-from urllib.parse import urlsplit, urlunsplit
 
 import httpx2
 import yaml
@@ -128,11 +127,26 @@ def load_server_config(path: Path) -> StdioServerConfig | HttpServerConfig:
     return parse_server_config(raw, base_dir=path.parent)
 
 
+def _drop_query_and_fragment(text: str) -> str:
+    return text.split("?", 1)[0].split("#", 1)[0]
+
+
 def safe_url(url: str) -> str:
-    """A URL with userinfo, query, and fragment removed, safe to print or export."""
-    parts = urlsplit(url)
-    netloc = parts.netloc.rpartition("@")[2]
-    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+    """A URL with userinfo, query, and fragment removed, safe to print or export.
+
+    Parsed by hand rather than with ``urlsplit`` because the input may be a config value as
+    written, where even the scheme can be a ``${VAR}`` reference that no URL parser accepts.
+    """
+    scheme, separator, rest = url.partition("://")
+    if not separator:
+        return _drop_query_and_fragment(url)
+    end = len(rest)
+    for delimiter in "/?#":
+        position = rest.find(delimiter)
+        if position != -1:
+            end = min(end, position)
+    authority = rest[:end].rpartition("@")[2]
+    return f"{scheme}://{authority}{_drop_query_and_fragment(rest[end:])}"
 
 
 def redacted_config(config: StdioServerConfig | HttpServerConfig) -> dict[str, Any]:
