@@ -72,8 +72,8 @@ class RunArtifact(BaseModel):
     provider: str
     model: str
     effort: str | None = None
-    max_tokens: int
-    strict_tools: bool
+    max_tokens: int | None = None
+    strict_tools: bool = False
     server: dict[str, Any]
     cases_path: str
     judge_model: str | None = None

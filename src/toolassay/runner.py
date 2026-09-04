@@ -71,7 +71,7 @@ async def run_case(case: Case, ctx: RunContext) -> CaseResult:
     tools_by_name = {tool.name: tool for tool in ctx.tools}
     provider = ctx.adapter.provider_name
     model = ctx.adapter.model
-    max_tokens = getattr(ctx.adapter, "max_tokens", None)
+    max_tokens = ctx.adapter.max_tokens
 
     calls: list[ToolCall] = []
     records: list[ToolCallRecord] = []
@@ -273,9 +273,9 @@ async def run_suite(
         label=options.label,
         provider=adapter.provider_name,
         model=adapter.model,
-        effort=getattr(adapter, "effort", None),
-        max_tokens=getattr(adapter, "max_tokens", 0),
-        strict_tools=bool(getattr(adapter, "strict_tools", False)),
+        effort=adapter.effort,
+        max_tokens=adapter.max_tokens,
+        strict_tools=adapter.strict_tools,
         server=options.server,
         cases_path=options.cases_path,
         judge_model=judge.model if judge is not None else None,

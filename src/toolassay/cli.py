@@ -17,7 +17,7 @@ from rich.table import Table
 from toolassay import __version__
 from toolassay.adapters import AdapterSettings, create_adapter
 from toolassay.adapters.base import Effort
-from toolassay.artifact import RunArtifact, read_artifact, write_artifact
+from toolassay.artifact import CaseResult, RunArtifact, read_artifact, write_artifact
 from toolassay.cases import load_cases
 from toolassay.core import ConfigError, ToolassayError
 from toolassay.diff import Threshold, check_gates, compute_diff
@@ -190,11 +190,8 @@ def run(
         server=redacted_config(server_config),
     )
 
-    def on_case(result: object) -> None:
+    def on_case(result: CaseResult) -> None:
         if not quiet:
-            from toolassay.artifact import CaseResult
-
-            assert isinstance(result, CaseResult)
             console.print(case_line(result))
 
     async def _run() -> RunArtifact:

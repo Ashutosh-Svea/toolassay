@@ -106,8 +106,8 @@ class AnthropicAdapter(ModelAdapter):
         client: AsyncAnthropic | None = None,
     ) -> None:
         self.model = model
-        self.effort = effort
-        self.max_tokens = max_tokens
+        self.effort: Effort | None = effort
+        self.max_tokens: int = max_tokens
         self.strict_tools = strict_tools
         # The SDK reads ANTHROPIC_API_KEY (or another supported credential) from the environment.
         self._client = client or AsyncAnthropic(timeout=timeout_seconds)

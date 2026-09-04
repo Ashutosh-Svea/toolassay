@@ -49,6 +49,12 @@ class ModelAdapter(ABC):
     """Value for the ``gen_ai.provider.name`` span attribute, for example ``anthropic``."""
 
     model: str
+    effort: str | None = None
+    """Reasoning effort actually in use, recorded in the artifact. None when not applicable."""
+    max_tokens: int | None = None
+    """Output token cap actually in use, recorded in the artifact and on chat spans."""
+    strict_tools: bool = False
+    """Whether tool schemas were sent with strict validation, recorded in the artifact."""
 
     @abstractmethod
     def start(self, *, system: str | None, tools: Sequence[ToolDefinition]) -> Conversation:
