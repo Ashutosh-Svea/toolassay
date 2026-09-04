@@ -228,6 +228,9 @@ async def test_http_transport_with_headers(http_demo_server: int) -> None:
         ),
         ("https://host#user:s3cret@evil", "https://host"),
         ("https://user:s3cret@host", "https://host"),
+        ("//user:s3cret@host/mcp?x=1", "//host/mcp"),
+        ("user:s3cret@host/mcp#f", "host/mcp"),
+        ("", ""),
     ],
 )
 def test_safe_url_strips_userinfo_query_and_fragment(url: str, expected: str) -> None:

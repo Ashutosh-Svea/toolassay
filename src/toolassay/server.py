@@ -131,22 +131,30 @@ def _drop_query_and_fragment(text: str) -> str:
     return text.split("?", 1)[0].split("#", 1)[0]
 
 
-def safe_url(url: str) -> str:
-    """A URL with userinfo, query, and fragment removed, safe to print or export.
-
-    Parsed by hand rather than with ``urlsplit`` because the input may be a config value as
-    written, where even the scheme can be a ``${VAR}`` reference that no URL parser accepts.
-    """
-    scheme, separator, rest = url.partition("://")
-    if not separator:
-        return _drop_query_and_fragment(url)
+def _strip_userinfo(rest: str) -> str:
+    """Drop userinfo from the leading authority, then the query and fragment after it."""
     end = len(rest)
     for delimiter in "/?#":
         position = rest.find(delimiter)
         if position != -1:
             end = min(end, position)
     authority = rest[:end].rpartition("@")[2]
-    return f"{scheme}://{authority}{_drop_query_and_fragment(rest[end:])}"
+    return authority + _drop_query_and_fragment(rest[end:])
+
+
+def safe_url(url: str) -> str:
+    """A URL with userinfo, query, and fragment removed, safe to print or export.
+
+    Parsed by hand rather than with ``urlsplit`` because the input may be a config value as
+    written, where even the scheme can be a ``${VAR}`` reference that no URL parser accepts.
+    Scheme-relative and scheme-less values are treated as authority plus path as well.
+    """
+    scheme, separator, rest = url.partition("://")
+    if separator:
+        return f"{scheme}://{_strip_userinfo(rest)}"
+    if url.startswith("//"):
+        return "//" + _strip_userinfo(url[2:])
+    return _strip_userinfo(url)
 
 
 def redacted_config(config: StdioServerConfig | HttpServerConfig) -> dict[str, Any]:
