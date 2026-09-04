@@ -7,7 +7,14 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from toolassay.adapters.base import AdapterSettings, Conversation, ModelAdapter
-from toolassay.core import ModelTurn, ToolCall, ToolDefinition, ToolResult, Usage
+from toolassay.core import (
+    AdapterFatalError,
+    ModelTurn,
+    ToolCall,
+    ToolDefinition,
+    ToolResult,
+    Usage,
+)
 from toolassay.demo.server import build_server
 from toolassay.server import McpToolServer
 
@@ -104,6 +111,26 @@ class ScriptedAdapter(ModelAdapter):
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+class FatalAdapter(ModelAdapter):
+    """Raises the fatal error an adapter uses for bad credentials or an unknown model."""
+
+    provider_name = "scripted"
+
+    def __init__(self) -> None:
+        self.model = "fatal-model"
+
+    def start(self, *, system: str | None, tools: Sequence[ToolDefinition]) -> Conversation:
+        return _FatalConversation()
+
+
+class _FatalConversation(Conversation):
+    async def send_user(self, text: str) -> ModelTurn:
+        raise AdapterFatalError("credentials rejected (simulated)")
+
+    async def send_tool_results(self, results: Sequence[ToolResult]) -> ModelTurn:
+        raise AssertionError("unreachable")
 
 
 class ExplodingAdapter(ModelAdapter):

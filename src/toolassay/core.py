@@ -81,3 +81,11 @@ class ToolassayError(Exception):
 
 class ConfigError(ToolassayError):
     """A server config, case file, or price file could not be loaded."""
+
+
+class AdapterFatalError(ToolassayError):
+    """A provider failure that would hit every case the same way, so the run stops early.
+
+    Adapters raise it for bad credentials, missing permissions, or an unknown model id.
+    Anything else a provider throws is recorded against the case and the run carries on.
+    """

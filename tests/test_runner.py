@@ -5,13 +5,22 @@ from pathlib import Path
 import pytest
 
 from toolassay.cases import Case, CaseFile, load_cases
+from toolassay.core import AdapterFatalError
 from toolassay.judge import LlmJudge
 from toolassay.pricing import ModelPrice, PriceBook
 from toolassay.runner import RunContext, RunOptions, run_case, run_suite
 from toolassay.server import McpToolServer
 from toolassay.telemetry import Telemetry
 
-from .support import ExplodingAdapter, ScriptedAdapter, bookshop_scripts, call, connect, turn
+from .support import (
+    ExplodingAdapter,
+    FatalAdapter,
+    ScriptedAdapter,
+    bookshop_scripts,
+    call,
+    connect,
+    turn,
+)
 
 PRICES = PriceBook({"scripted-model": ModelPrice(input=1.0, output=10.0)})
 
@@ -252,3 +261,17 @@ async def test_run_suite_continues_after_a_case_error() -> None:
         )
         assert artifact.summary.errored == 2 and artifact.summary.passed == 0
         assert artifact.summary.cost_usd is None
+
+
+async def test_fatal_adapter_errors_abort_the_run() -> None:
+    case_file = CaseFile.model_validate({"cases": [{"id": "a", "prompt": "x"}]})
+    async with connect("v2") as v2_connection:
+        with pytest.raises(AdapterFatalError, match="credentials rejected"):
+            await run_suite(
+                case_file,
+                adapter=FatalAdapter(),
+                server=v2_connection,
+                telemetry=Telemetry.disabled(),
+                prices=PRICES,
+                options=RunOptions(),
+            )

@@ -6,6 +6,7 @@ import copy
 from collections.abc import Sequence
 from typing import Any, cast
 
+import anthropic
 from anthropic import AsyncAnthropic, omit
 from anthropic.types import (
     MessageParam,
@@ -15,7 +16,14 @@ from anthropic.types import (
 )
 
 from toolassay.adapters.base import AdapterSettings, Conversation, Effort, ModelAdapter
-from toolassay.core import ModelTurn, ToolCall, ToolDefinition, ToolResult, Usage
+from toolassay.core import (
+    AdapterFatalError,
+    ModelTurn,
+    ToolCall,
+    ToolDefinition,
+    ToolResult,
+    Usage,
+)
 
 DEFAULT_MODEL = "claude-opus-5"
 
@@ -173,14 +181,27 @@ class AnthropicConversation(Conversation):
         output_config: OutputConfigParam | None = (
             {"effort": self._effort} if self._effort is not None else None
         )
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=self._max_tokens,
-            system=self._system if self._system is not None else omit,
-            tools=self._tools if self._tools else omit,
-            output_config=output_config if output_config is not None else omit,
-            messages=self.messages,
-        )
+        try:
+            response = await self._client.messages.create(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                system=self._system if self._system is not None else omit,
+                tools=self._tools if self._tools else omit,
+                output_config=output_config if output_config is not None else omit,
+                messages=self.messages,
+            )
+        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
+            raise AdapterFatalError(f"Anthropic rejected the credentials: {exc.message}") from exc
+        except anthropic.NotFoundError as exc:
+            raise AdapterFatalError(f"model {self._model!r} was not found: {exc.message}") from exc
+        except TypeError as exc:
+            # The SDK raises TypeError when it cannot find any credential at request time.
+            if "authentication" not in str(exc).lower():
+                raise
+            raise AdapterFatalError(
+                "no Anthropic credentials found: set ANTHROPIC_API_KEY (or another credential "
+                "the anthropic SDK supports) and run again"
+            ) from exc
         # Echo the full content back (thinking blocks included) so the next request is valid.
         self.messages.append({"role": "assistant", "content": response.content})
 

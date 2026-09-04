@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import anthropic
+import httpx2
 import pytest
 from anthropic import AsyncAnthropic, omit
 from anthropic.types import Message
 
 from toolassay.adapters import AdapterSettings, create_adapter, detect_provider
 from toolassay.adapters.anthropic import AnthropicAdapter, strict_schema, to_tool_param
-from toolassay.core import ConfigError, ToolDefinition, ToolResult
+from toolassay.core import AdapterFatalError, ConfigError, ToolDefinition, ToolResult
 
 NESTED_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -190,3 +192,44 @@ def test_registry_detects_anthropic_models_and_rejects_unknown() -> None:
         create_adapter(AdapterSettings(model="gpt-5"))
     with pytest.raises(ConfigError, match="unknown provider"):
         create_adapter(AdapterSettings(model="gpt-5"), provider="openai")
+
+
+def _status_error(cls: type[anthropic.APIStatusError], status: int) -> anthropic.APIStatusError:
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx2.Response(status, request=request, json={"error": {"message": "denied"}})
+    return cls("denied", response=response, body=None)
+
+
+@pytest.mark.parametrize(
+    ("raised", "match"),
+    [
+        (_status_error(anthropic.AuthenticationError, 401), "rejected the credentials"),
+        (_status_error(anthropic.PermissionDeniedError, 403), "rejected the credentials"),
+        (_status_error(anthropic.NotFoundError, 404), "was not found"),
+        (TypeError("Could not resolve authentication method."), "no Anthropic credentials"),
+    ],
+)
+async def test_fatal_sdk_errors_are_translated(
+    monkeypatch: pytest.MonkeyPatch, raised: Exception, match: str
+) -> None:
+    sdk_client = AsyncAnthropic(api_key="test-key-not-real")
+
+    async def create(**kwargs: Any) -> Message:
+        raise raised
+
+    monkeypatch.setattr(sdk_client.messages, "create", create)
+    conversation = AnthropicAdapter(client=sdk_client).start(system=None, tools=[])
+    with pytest.raises(AdapterFatalError, match=match):
+        await conversation.send_user("hi")
+
+
+async def test_other_sdk_errors_pass_through(monkeypatch: pytest.MonkeyPatch) -> None:
+    sdk_client = AsyncAnthropic(api_key="test-key-not-real")
+
+    async def create(**kwargs: Any) -> Message:
+        raise _status_error(anthropic.RateLimitError, 429)
+
+    monkeypatch.setattr(sdk_client.messages, "create", create)
+    conversation = AnthropicAdapter(client=sdk_client).start(system=None, tools=[])
+    with pytest.raises(anthropic.RateLimitError):
+        await conversation.send_user("hi")

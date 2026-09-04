@@ -12,7 +12,7 @@ from toolassay.artifact import CaseResult, RunArtifact, read_artifact, summarize
 from toolassay.cli import app
 from toolassay.core import Usage
 
-from .support import bookshop_scripts, scripted_factory, turn
+from .support import FatalAdapter, bookshop_scripts, scripted_factory, turn
 
 runner = CliRunner()
 
@@ -210,3 +210,28 @@ def test_run_reports_config_errors(tmp_path: Path, examples_dir: Path) -> None:
         ],
     )
     assert result.exit_code == 2 and "cannot infer a provider" in result.output
+
+
+def test_run_stops_on_fatal_adapter_error(examples_dir: Path, tmp_path: Path) -> None:
+    register("fatal", lambda settings: FatalAdapter())
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "--server",
+            str(examples_dir / "server-v2.yaml"),
+            "--cases",
+            str(examples_dir / "cases.yaml"),
+            "--model",
+            "fatal-model",
+            "--provider",
+            "fatal",
+            "--out",
+            str(tmp_path / "run.json"),
+            "--otel",
+            "none",
+        ],
+    )
+    assert result.exit_code == 2, result.output
+    assert "credentials rejected" in result.output
+    assert not (tmp_path / "run.json").exists()

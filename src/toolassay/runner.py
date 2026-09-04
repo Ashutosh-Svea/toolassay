@@ -12,7 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from toolassay.adapters.base import ModelAdapter
 from toolassay.artifact import CaseResult, RunArtifact, ToolCallRecord, now, summarize
 from toolassay.cases import Case, CaseFile
-from toolassay.core import ModelTurn, ToolCall, ToolDefinition, ToolResult, Usage
+from toolassay.core import (
+    AdapterFatalError,
+    ModelTurn,
+    ToolCall,
+    ToolDefinition,
+    ToolResult,
+    Usage,
+)
 from toolassay.judge import JudgeVerdict, LlmJudge
 from toolassay.pricing import PriceBook
 from toolassay.scoring import score_case
@@ -55,7 +62,11 @@ class RunContext(BaseModel):
 
 
 async def run_case(case: Case, ctx: RunContext) -> CaseResult:
-    """Run one case to completion and score it. Never raises for model or tool failures."""
+    """Run one case to completion and score it.
+
+    Model and tool failures are recorded on the result. Only ``AdapterFatalError`` escapes,
+    because it would fail every remaining case the same way.
+    """
     max_turns = case.max_turns or ctx.max_turns
     tools_by_name = {tool.name: tool for tool in ctx.tools}
     provider = ctx.adapter.provider_name
@@ -109,6 +120,8 @@ async def run_case(case: Case, ctx: RunContext) -> CaseResult:
                 failures.append("model refused the request")
             elif not pending_tool_calls and stop_reason not in NORMAL_STOP_REASONS:
                 failures.append(f"model stopped with reason {stop_reason!r}")
+        except AdapterFatalError:
+            raise
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             failures.append(f"run error: {error}")
