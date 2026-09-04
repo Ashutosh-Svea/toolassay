@@ -224,7 +224,10 @@ def run(
         raise _fail(f"{type(exc).__name__}: {exc}") from None
     telemetry.shutdown()
 
-    write_artifact(artifact, out)
+    try:
+        write_artifact(artifact, out)
+    except OSError as exc:
+        raise _fail(f"cannot write {out}: {exc}") from None
     print_run(artifact, console)
     console.print(f"wrote {out}")
     if fail_under is not None and artifact.summary.pass_rate * 100 < fail_under:

@@ -233,3 +233,29 @@ async def test_other_sdk_errors_pass_through(monkeypatch: pytest.MonkeyPatch) ->
     conversation = AnthropicAdapter(client=sdk_client).start(system=None, tools=[])
     with pytest.raises(anthropic.RateLimitError):
         await conversation.send_user("hi")
+
+
+async def test_strict_schema_rejection_is_fatal_with_a_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sdk_client = AsyncAnthropic(api_key="test-key-not-real")
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx2.Response(400, request=request, json={})
+
+    async def create(**kwargs: Any) -> Message:
+        raise anthropic.BadRequestError(
+            "tools.0.input_schema: strict mode does not support minLength",
+            response=response,
+            body=None,
+        )
+
+    monkeypatch.setattr(sdk_client.messages, "create", create)
+    tool = ToolDefinition(name="t", input_schema={"type": "object", "properties": {}})
+    strict = AnthropicAdapter(client=sdk_client).start(system=None, tools=[tool])
+    with pytest.raises(AdapterFatalError, match="--no-strict"):
+        await strict.send_user("hi")
+    relaxed = AnthropicAdapter(client=sdk_client, strict_tools=False).start(
+        system=None, tools=[tool]
+    )
+    with pytest.raises(anthropic.BadRequestError):
+        await relaxed.send_user("hi")

@@ -132,7 +132,16 @@ async def run_case(case: Case, ctx: RunContext) -> CaseResult:
 
         verdict: JudgeVerdict | None = None
         if ctx.judge is not None and case.judge and error is None:
-            verdict = await ctx.judge.evaluate(case, final_answer, calls)
+            try:
+                verdict = await ctx.judge.evaluate(case, final_answer, calls)
+            except AdapterFatalError:
+                raise
+            except Exception as exc:
+                verdict = JudgeVerdict(
+                    passed=False,
+                    reason=f"judge error: {type(exc).__name__}: {exc}",
+                    model=ctx.judge.model,
+                )
             if not verdict.passed:
                 failures.append(f"judge: {verdict.reason}")
 

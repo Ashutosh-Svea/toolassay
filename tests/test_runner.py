@@ -275,3 +275,17 @@ async def test_fatal_adapter_errors_abort_the_run() -> None:
                 prices=PRICES,
                 options=RunOptions(),
             )
+
+
+async def test_judge_errors_fail_the_case_without_aborting() -> None:
+    case = Case(id="c", prompt="x", judge="rubric")
+    async with connect("v2") as v2_connection:
+        ctx = await _context(
+            ScriptedAdapter(default=[turn("answer")]),
+            v2_connection,
+            judge=LlmJudge(ExplodingAdapter()),
+        )
+        result = await run_case(case, ctx)
+    assert result.judge is not None and not result.judge.passed
+    assert result.judge.reason.startswith("judge error: ConnectionError")
+    assert not result.completed and result.error is None

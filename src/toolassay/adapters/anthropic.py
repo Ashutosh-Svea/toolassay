@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from collections.abc import Sequence
 from typing import Any, cast
 
@@ -30,6 +31,7 @@ DEFAULT_MODEL = "claude-opus-5"
 _SCHEMA_CHILD_LISTS = ("anyOf", "oneOf", "allOf", "prefixItems")
 _SCHEMA_CHILD_MAPS = ("properties", "$defs", "definitions", "patternProperties")
 _SCHEMA_CHILD_NODES = ("items", "not", "if", "then", "else")
+_SCHEMA_REJECTION = re.compile(r"schema|strict|additionalProperties", re.IGNORECASE)
 
 
 def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
@@ -131,6 +133,7 @@ class AnthropicAdapter(ModelAdapter):
             tools=[to_tool_param(tool, strict=self.strict_tools) for tool in tools],
             effort=self.effort,
             max_tokens=self.max_tokens,
+            strict=self.strict_tools,
         )
 
     async def aclose(self) -> None:
@@ -150,6 +153,7 @@ class AnthropicConversation(Conversation):
         tools: list[ToolParam],
         effort: Effort | None,
         max_tokens: int,
+        strict: bool = True,
     ) -> None:
         self._client = client
         self._model = model
@@ -157,6 +161,7 @@ class AnthropicConversation(Conversation):
         self._tools = tools
         self._effort = effort
         self._max_tokens = max_tokens
+        self._strict = strict
         self.messages: list[MessageParam] = []
 
     async def send_user(self, text: str) -> ModelTurn:
@@ -194,6 +199,14 @@ class AnthropicConversation(Conversation):
             raise AdapterFatalError(f"Anthropic rejected the credentials: {exc.message}") from exc
         except anthropic.NotFoundError as exc:
             raise AdapterFatalError(f"model {self._model!r} was not found: {exc.message}") from exc
+        except anthropic.BadRequestError as exc:
+            # A schema the API will not accept in strict mode fails every case the same way.
+            if self._strict and self._tools and _SCHEMA_REJECTION.search(exc.message):
+                raise AdapterFatalError(
+                    f"the API rejected a tool schema under strict validation: {exc.message}. "
+                    "Retry with --no-strict to send the schemas as the server published them."
+                ) from exc
+            raise
         except TypeError as exc:
             # The SDK raises TypeError when it cannot find any credential at request time.
             if "authentication" not in str(exc).lower():
