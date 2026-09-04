@@ -52,8 +52,12 @@ def parse_verdict(text: str) -> tuple[bool, str]:
         return False, f"judge reply was not valid JSON ({exc}): {text[:200]!r}"
     if not isinstance(data, dict) or "pass" not in data:
         return False, f"judge reply lacked a 'pass' field: {text[:200]!r}"
+    flag = data["pass"]
     reason = data.get("reason")
-    return bool(data["pass"]), str(reason) if reason is not None else ""
+    reason_text = str(reason) if reason is not None else ""
+    if not isinstance(flag, bool):
+        return False, f"judge 'pass' field was {flag!r}, not a JSON boolean ({reason_text})"
+    return flag, reason_text
 
 
 class LlmJudge:

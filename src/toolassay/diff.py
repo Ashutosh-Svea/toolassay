@@ -229,12 +229,30 @@ def check_gates(
     *,
     max_cost_increase: Threshold | None,
     max_pass_rate_drop: float,
+    max_regressions: int = 0,
+    allow_missing_cases: bool = False,
 ) -> list[str]:
-    """Return the gate violations; an empty list means the candidate is acceptable."""
+    """Return the gate violations; an empty list means the candidate is acceptable.
+
+    Per-case regressions and cases that vanished from the candidate are gated on their
+    own, so a fixed case cannot hide a broken one behind an unchanged pass rate.
+    """
     violations: list[str] = []
     if report.baseline.cases == 0:
         violations.append("the two runs share no case ids, so there is nothing to compare")
         return violations
+    regressed = [delta.id for delta in report.cases if delta.status == "regressed"]
+    if len(regressed) > max_regressions:
+        violations.append(
+            f"{len(regressed)} case(s) regressed from pass to fail: {', '.join(regressed)}; "
+            f"allowed is {max_regressions}"
+        )
+    if report.only_in_baseline and not allow_missing_cases:
+        violations.append(
+            f"{len(report.only_in_baseline)} baseline case(s) missing from the candidate: "
+            f"{', '.join(report.only_in_baseline)}; pass --allow-missing-cases if the case "
+            "file changed on purpose"
+        )
     drop = report.pass_rate_drop * 100
     if drop > max_pass_rate_drop + 1e-9:
         violations.append(

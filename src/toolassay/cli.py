@@ -229,6 +229,11 @@ def run(
     except OSError as exc:
         raise _fail(f"cannot write {out}: {exc}") from None
     print_run(artifact, console)
+    if artifact.relaxed_tools:
+        errors.print(
+            "[yellow]note:[/] sent without strict validation because their schema allows "
+            f"additional properties: {', '.join(artifact.relaxed_tools)}"
+        )
     console.print(f"wrote {out}")
     if fail_under is not None and artifact.summary.pass_rate * 100 < fail_under:
         errors.print(
@@ -258,6 +263,17 @@ def diff(
     no_cost_gate: Annotated[
         bool, typer.Option("--no-cost-gate", help="Skip the cost gate entirely.")
     ] = False,
+    max_regressions: Annotated[
+        int,
+        typer.Option("--max-regressions", min=0, help="Cases allowed to go from pass to fail."),
+    ] = 0,
+    allow_missing_cases: Annotated[
+        bool,
+        typer.Option(
+            "--allow-missing-cases",
+            help="Do not fail when a baseline case is absent from the candidate.",
+        ),
+    ] = False,
     as_json: Annotated[bool, typer.Option("--json", help="Print the report as JSON.")] = False,
 ) -> None:
     """Compare two runs and exit 1 when the candidate regresses past the thresholds."""
@@ -267,7 +283,11 @@ def diff(
     except ToolassayError as exc:
         raise _fail(str(exc)) from None
     violations = check_gates(
-        report, max_cost_increase=threshold, max_pass_rate_drop=max_pass_rate_drop
+        report,
+        max_cost_increase=threshold,
+        max_pass_rate_drop=max_pass_rate_drop,
+        max_regressions=max_regressions,
+        allow_missing_cases=allow_missing_cases,
     )
     if as_json:
         payload = report.model_dump(mode="json")

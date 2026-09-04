@@ -123,13 +123,41 @@ def test_gates() -> None:
     worse = _artifact([_case("a", True), _case("b", False, cost=0.02)])
     report = compute_diff(baseline, worse)
     violations = check_gates(report, max_cost_increase=Threshold.parse("10%"), max_pass_rate_drop=0)
-    assert len(violations) == 2
-    assert "pass rate dropped by 50.0 points" in violations[0]
-    assert "cost rose +50.0%" in violations[1]
-    assert check_gates(report, max_cost_increase=None, max_pass_rate_drop=50) == []
-    assert (
-        check_gates(report, max_cost_increase=Threshold.parse("0.01"), max_pass_rate_drop=50) == []
+    assert len(violations) == 3
+    assert "1 case(s) regressed from pass to fail: b" in violations[0]
+    assert "pass rate dropped by 50.0 points" in violations[1]
+    assert "cost rose +50.0%" in violations[2]
+    relaxed = check_gates(report, max_cost_increase=None, max_pass_rate_drop=50, max_regressions=1)
+    assert relaxed == []
+    absolute = check_gates(
+        report,
+        max_cost_increase=Threshold.parse("0.01"),
+        max_pass_rate_drop=50,
+        max_regressions=1,
     )
+    assert absolute == []
+
+
+def test_a_fix_cannot_hide_a_regression() -> None:
+    baseline = _artifact([_case("a", True), _case("b", False)])
+    candidate = _artifact([_case("a", False), _case("b", True)])
+    report = compute_diff(baseline, candidate)
+    assert report.pass_rate_drop == 0
+    violations = check_gates(report, max_cost_increase=None, max_pass_rate_drop=0)
+    assert violations == ["1 case(s) regressed from pass to fail: a; allowed is 0"]
+
+
+def test_missing_baseline_cases_are_a_violation_unless_allowed() -> None:
+    baseline = _artifact([_case("a", True), _case("b", True)])
+    candidate = _artifact([_case("a", True)])
+    report = compute_diff(baseline, candidate)
+    violations = check_gates(report, max_cost_increase=None, max_pass_rate_drop=0)
+    assert len(violations) == 1
+    assert violations[0].startswith("1 baseline case(s) missing from the candidate: b")
+    allowed = check_gates(
+        report, max_cost_increase=None, max_pass_rate_drop=0, allow_missing_cases=True
+    )
+    assert allowed == []
 
 
 def test_gate_with_missing_cost_and_no_shared_cases() -> None:

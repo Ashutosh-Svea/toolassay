@@ -244,6 +244,7 @@ async def test_run_suite_over_example_cases(examples_dir: Path) -> None:
             and artifact.effort == "low"
             and artifact.max_tokens == 512
         )
+    assert artifact.relaxed_tools == []
 
 
 async def test_run_suite_continues_after_a_case_error() -> None:

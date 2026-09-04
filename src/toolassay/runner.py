@@ -285,6 +285,7 @@ async def run_suite(
         effort=adapter.effort,
         max_tokens=adapter.max_tokens,
         strict_tools=adapter.strict_tools,
+        relaxed_tools=list(adapter.relaxed_tools),
         server=options.server,
         cases_path=options.cases_path,
         judge_model=judge.model if judge is not None else None,

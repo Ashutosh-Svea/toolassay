@@ -9,7 +9,12 @@ from anthropic import AsyncAnthropic, omit
 from anthropic.types import Message
 
 from toolassay.adapters import AdapterSettings, create_adapter, detect_provider
-from toolassay.adapters.anthropic import AnthropicAdapter, strict_schema, to_tool_param
+from toolassay.adapters.anthropic import (
+    AnthropicAdapter,
+    StrictSchemaError,
+    strict_schema,
+    to_tool_param,
+)
 from toolassay.core import AdapterFatalError, ConfigError, ToolDefinition, ToolResult
 
 NESTED_SCHEMA: dict[str, Any] = {
@@ -259,3 +264,63 @@ async def test_strict_schema_rejection_is_fatal_with_a_hint(
     )
     with pytest.raises(anthropic.BadRequestError):
         await relaxed.send_user("hi")
+
+
+def test_strict_schema_refuses_to_narrow_open_objects() -> None:
+    open_dict = {
+        "type": "object",
+        "properties": {"extra": {"type": "object", "additionalProperties": True}},
+    }
+    with pytest.raises(StrictSchemaError, match=r"\$\.properties\.extra"):
+        strict_schema(open_dict)
+    typed_dict = {
+        "type": "object",
+        "properties": {"m": {"type": "object", "additionalProperties": {"type": "integer"}}},
+    }
+    with pytest.raises(StrictSchemaError):
+        strict_schema(typed_dict)
+    already_closed = {"type": "object", "properties": {}, "additionalProperties": False}
+    assert strict_schema(already_closed) == already_closed
+
+
+def test_strict_schema_closes_root_and_extra_applicators() -> None:
+    assert strict_schema({}) == {"type": "object", "additionalProperties": False}
+    schema = {
+        "type": "object",
+        "properties": {
+            "items": {"type": "array", "contains": {"type": "object", "properties": {}}},
+        },
+        "dependentSchemas": {"x": {"type": "object", "properties": {}}},
+    }
+    closed = strict_schema(schema)
+    assert closed["properties"]["items"]["contains"]["additionalProperties"] is False
+    assert closed["dependentSchemas"]["x"]["additionalProperties"] is False
+    ref_root = {"$ref": "#/$defs/Args", "$defs": {"Args": {"type": "object", "properties": {}}}}
+    closed = strict_schema(ref_root)
+    assert "type" not in closed
+    assert closed["$defs"]["Args"]["additionalProperties"] is False
+
+
+async def test_open_schemas_fall_back_to_non_strict_per_tool(
+    client: tuple[AsyncAnthropic, FakeMessages],
+) -> None:
+    sdk_client, fake = client
+    adapter = AnthropicAdapter(client=sdk_client)
+    closed = ToolDefinition(name="closed", input_schema={"type": "object", "properties": {}})
+    opened = ToolDefinition(
+        name="opened",
+        input_schema={
+            "type": "object",
+            "properties": {"extra": {"type": "object", "additionalProperties": True}},
+        },
+    )
+    conversation = adapter.start(system=None, tools=[closed, opened])
+    assert adapter.relaxed_tools == ("opened",)
+    await conversation.send_user("hi")
+    sent = {t["name"]: t for t in fake.calls[0]["tools"]}
+    assert sent["closed"].get("strict") is True
+    assert "strict" not in sent["opened"]
+    assert cast(dict[str, Any], sent["opened"]["input_schema"])["properties"]["extra"] == {
+        "type": "object",
+        "additionalProperties": True,
+    }

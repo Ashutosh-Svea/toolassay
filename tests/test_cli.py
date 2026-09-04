@@ -72,22 +72,37 @@ def test_diff_passes_and_fails_gates(tmp_path: Path) -> None:
 
     result = runner.invoke(app, ["diff", str(base), str(cand), "--max-cost-increase", "10%"])
     assert result.exit_code == 1, result.output
-    assert "pass rate dropped" in result.output and "cost rose" in result.output
+    assert "regressed from pass to fail" in result.output
+    assert "pass rate dropped" in result.output
+    assert "cost rose" in result.output
 
-    result = runner.invoke(
-        app,
-        ["diff", str(base), str(cand), "--max-cost-increase", "100%", "--max-pass-rate-drop", "50"],
-    )
+    lenient = ["--max-cost-increase", "100%", "--max-pass-rate-drop", "50"]
+    result = runner.invoke(app, ["diff", str(base), str(cand), *lenient])
+    assert result.exit_code == 1, result.output
+    assert "regressed from pass to fail" in result.output
+
+    result = runner.invoke(app, ["diff", str(base), str(cand), *lenient, "--max-regressions", "1"])
     assert result.exit_code == 0, result.output
     assert "gates passed" in result.output
 
     result = runner.invoke(
         app,
-        ["diff", str(base), str(cand), "--no-cost-gate", "--max-pass-rate-drop", "50", "--json"],
+        [
+            "diff",
+            str(base),
+            str(cand),
+            "--no-cost-gate",
+            "--max-pass-rate-drop",
+            "50",
+            "--max-regressions",
+            "1",
+            "--json",
+        ],
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["violations"] == [] and payload["candidate"]["passed"] == 1
+    assert payload["violations"] == []
+    assert payload["candidate"]["passed"] == 1
 
 
 def test_diff_rejects_bad_threshold_and_missing_file(tmp_path: Path) -> None:

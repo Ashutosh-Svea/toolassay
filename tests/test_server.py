@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -21,6 +22,7 @@ from toolassay.server import (
     parse_server_config,
     redacted_config,
     render_tool_result,
+    safe_url,
 )
 
 from .support import connect
@@ -67,6 +69,8 @@ def test_load_server_config_from_examples(examples_dir: Path) -> None:
     assert isinstance(config, StdioServerConfig)
     assert config.command == sys.executable
     assert config.args[-2:] == ["--contracts", "v1"]
+    assert config.document is not None
+    assert config.document["command"] == "${TOOLASSAY_PYTHON}"
 
 
 def test_render_tool_result_prefers_text_then_structured() -> None:
@@ -206,3 +210,47 @@ async def test_http_transport_with_headers(http_demo_server: int) -> None:
     )
     async with McpToolServer(config) as connection:
         assert len(await connection.list_tools()) == 4
+
+
+def test_safe_url_strips_userinfo_query_and_fragment() -> None:
+    assert safe_url("https://user:secret@host:8443/mcp?token=abc#frag") == "https://host:8443/mcp"
+    assert safe_url("http://${HOST}:8765/mcp") == "http://${HOST}:8765/mcp"
+    assert safe_url("host/mcp?x=1") == "host/mcp"
+
+
+def test_redacted_config_keeps_the_document_as_written() -> None:
+    raw = {
+        "transport": "stdio",
+        "command": "server",
+        "args": ["--token", "${TOKEN}"],
+        "env": {"API_KEY": "${TOKEN}"},
+    }
+    config = parse_server_config(raw, environ={"TOKEN": "s3cret"})
+    assert isinstance(config, StdioServerConfig)
+    assert config.args == ["--token", "s3cret"]
+    redacted = redacted_config(config)
+    assert redacted["args"] == ["--token", "${TOKEN}"]
+    assert redacted["env"] == {"API_KEY": "***"}
+    assert "s3cret" not in json.dumps(redacted)
+    assert McpToolServer(config).address == "server --token ${TOKEN}"
+
+    http = parse_server_config(
+        {"transport": "http", "url": "https://u:${TOKEN}@h/mcp?key=${TOKEN}"},
+        environ={"TOKEN": "s3cret"},
+    )
+    assert isinstance(http, HttpServerConfig)
+    assert http.url == "https://u:s3cret@h/mcp?key=s3cret"
+    assert redacted_config(http)["url"] == "https://h/mcp"
+    assert McpToolServer(http).address == "https://h/mcp"
+
+
+def test_redacted_config_without_a_document_masks_what_it_can() -> None:
+    config = HttpServerConfig(transport="http", url="https://a:b@h/mcp?q=1", headers={"X": "y"})
+    assert config.document is None
+    assert redacted_config(config) == {
+        "transport": "http",
+        "url": "https://h/mcp",
+        "headers": {"X": "***"},
+    }
+    stdio = StdioServerConfig(command="python", args=["-m", "x"])
+    assert McpToolServer(stdio).address == "python -m x"

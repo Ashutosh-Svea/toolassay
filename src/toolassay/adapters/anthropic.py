@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import re
 from collections.abc import Sequence
 from typing import Any, cast
@@ -27,11 +28,26 @@ from toolassay.core import (
 )
 
 DEFAULT_MODEL = "claude-opus-5"
+logger = logging.getLogger(__name__)
 
 _SCHEMA_CHILD_LISTS = ("anyOf", "oneOf", "allOf", "prefixItems")
-_SCHEMA_CHILD_MAPS = ("properties", "$defs", "definitions", "patternProperties")
-_SCHEMA_CHILD_NODES = ("items", "not", "if", "then", "else")
+_SCHEMA_CHILD_MAPS = ("properties", "$defs", "definitions", "patternProperties", "dependentSchemas")
+_SCHEMA_CHILD_NODES = (
+    "items",
+    "additionalItems",
+    "contains",
+    "propertyNames",
+    "unevaluatedItems",
+    "not",
+    "if",
+    "then",
+    "else",
+)
 _SCHEMA_REJECTION = re.compile(r"schema|strict|additionalProperties", re.IGNORECASE)
+
+
+class StrictSchemaError(ValueError):
+    """The schema says something strict mode cannot express without changing its meaning."""
 
 
 def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
@@ -39,9 +55,14 @@ def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
     Strict tool use requires it on every object, nested ones and ``$defs`` included. Nothing
     else is changed, so the model sees the contract exactly as the server published it.
+    A schema that already allows extra properties somewhere (``additionalProperties`` set
+    to ``true`` or to a schema, as a dict-typed parameter produces) raises
+    ``StrictSchemaError`` rather than being narrowed silently.
     """
     result = copy.deepcopy(schema)
-    _close_objects(result)
+    if "type" not in result and "$ref" not in result:
+        result["type"] = "object"
+    _close_objects(result, "$")
     return result
 
 
@@ -52,30 +73,40 @@ def _is_object_node(node: dict[str, Any]) -> bool:
     return isinstance(node_type, list) and "object" in node_type
 
 
-def _close_objects(node: Any) -> None:
+def _close_objects(node: Any, path: str) -> None:
     if isinstance(node, list):
-        for item in node:
-            _close_objects(item)
+        for index, item in enumerate(node):
+            _close_objects(item, f"{path}[{index}]")
         return
     if not isinstance(node, dict):
         return
     if _is_object_node(node):
+        declared = node.get("additionalProperties")
+        if declared is not None and declared is not False:
+            raise StrictSchemaError(
+                f"{path} allows additional properties ({declared!r}); "
+                "strict mode can only express additionalProperties: false"
+            )
         node["additionalProperties"] = False
     for key in _SCHEMA_CHILD_MAPS:
         children = node.get(key)
         if isinstance(children, dict):
-            for child in children.values():
-                _close_objects(child)
+            for name, child in children.items():
+                _close_objects(child, f"{path}.{key}.{name}")
     for key in _SCHEMA_CHILD_LISTS:
-        _close_objects(node.get(key))
+        _close_objects(node.get(key), f"{path}.{key}")
     for key in _SCHEMA_CHILD_NODES:
-        _close_objects(node.get(key))
+        _close_objects(node.get(key), f"{path}.{key}")
 
 
 def to_tool_param(tool: ToolDefinition, *, strict: bool) -> ToolParam:
-    """Translate a discovered tool into the SDK's tool definition shape."""
+    """Translate a discovered tool into the SDK's tool definition shape.
+
+    Raises ``StrictSchemaError`` when ``strict`` is requested for a schema it cannot express.
+    """
     schema = strict_schema(tool.input_schema) if strict else copy.deepcopy(tool.input_schema)
-    schema.setdefault("type", "object")
+    if "type" not in schema and "$ref" not in schema:
+        schema["type"] = "object"
     param: ToolParam = {
         "name": tool.name,
         "description": tool.description,
@@ -126,11 +157,26 @@ class AnthropicAdapter(ModelAdapter):
         )
 
     def start(self, *, system: str | None, tools: Sequence[ToolDefinition]) -> Conversation:
+        params: list[ToolParam] = []
+        relaxed: list[str] = []
+        for tool in tools:
+            if self.strict_tools:
+                try:
+                    params.append(to_tool_param(tool, strict=True))
+                    continue
+                except StrictSchemaError as exc:
+                    if tool.name not in self.relaxed_tools:
+                        logger.warning(
+                            "tool %s is sent without strict validation: %s", tool.name, exc
+                        )
+                    relaxed.append(tool.name)
+            params.append(to_tool_param(tool, strict=False))
+        self.relaxed_tools = tuple(relaxed)
         return AnthropicConversation(
             self._client,
             model=self.model,
             system=system,
-            tools=[to_tool_param(tool, strict=self.strict_tools) for tool in tools],
+            tools=params,
             effort=self.effort,
             max_tokens=self.max_tokens,
             strict=self.strict_tools,

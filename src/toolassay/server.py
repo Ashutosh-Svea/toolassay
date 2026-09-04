@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -19,17 +20,26 @@ from mcp.client.stdio import StdioServerParameters, get_default_environment
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.exceptions import MCPError
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, TypeAdapter, ValidationError
 
 from toolassay.core import ConfigError, ToolCall, ToolDefinition, ToolResult
 
 TransportKind = Literal["pipe", "tcp", "inproc"]
 
 
-class StdioServerConfig(BaseModel):
-    """Launch a server as a subprocess and talk to it over stdin and stdout."""
-
+class _ServerConfigBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    _document: dict[str, Any] | None = PrivateAttr(default=None)
+
+    @property
+    def document(self) -> dict[str, Any] | None:
+        """The config as written, before ``${VAR}`` expansion; what artifacts and spans show."""
+        return self._document
+
+
+class StdioServerConfig(_ServerConfigBase):
+    """Launch a server as a subprocess and talk to it over stdin and stdout."""
 
     transport: Literal["stdio"] = "stdio"
     command: str = Field(min_length=1)
@@ -38,10 +48,8 @@ class StdioServerConfig(BaseModel):
     cwd: str | None = None
 
 
-class HttpServerConfig(BaseModel):
+class HttpServerConfig(_ServerConfigBase):
     """Connect to a server that is already running over streamable HTTP."""
-
-    model_config = ConfigDict(extra="forbid")
 
     transport: Literal["http"]
     url: str = Field(min_length=1)
@@ -104,6 +112,7 @@ def parse_server_config(
         if not cwd.is_absolute() and base_dir is not None:
             cwd = base_dir / cwd
         config = config.model_copy(update={"cwd": str(cwd)})
+    config._document = copy.deepcopy(raw)
     return config
 
 
@@ -118,12 +127,33 @@ def load_server_config(path: Path) -> StdioServerConfig | HttpServerConfig:
     return parse_server_config(raw, base_dir=path.parent)
 
 
+def safe_url(url: str) -> str:
+    """A URL with userinfo, query, and fragment removed, safe to print or export."""
+    scheme, sep, rest = url.partition("://")
+    if not sep:
+        return url.split("?", 1)[0].split("#", 1)[0]
+    netloc, slash, remainder = rest.partition("/")
+    netloc = netloc.rpartition("@")[2]
+    path = remainder.split("?", 1)[0].split("#", 1)[0]
+    return f"{scheme}://{netloc}{slash}{path}"
+
+
 def redacted_config(config: StdioServerConfig | HttpServerConfig) -> dict[str, Any]:
-    """The config as stored in run artifacts: header and env values are masked."""
-    data = config.model_dump(mode="json")
+    """The config as stored in run artifacts.
+
+    Uses the document as written (``${VAR}`` references intact) when the config was loaded
+    from a file, so expanded secrets never reach the artifact. Header and env values are
+    masked either way, and URLs lose their userinfo and query string.
+    """
+    document = config.document
+    data: dict[str, Any] = (
+        copy.deepcopy(document) if document is not None else config.model_dump(mode="json")
+    )
     for key in ("headers", "env"):
-        if data.get(key):
+        if isinstance(data.get(key), dict) and data[key]:
             data[key] = dict.fromkeys(data[key], "***")
+    if isinstance(data.get("url"), str):
+        data["url"] = safe_url(data["url"])
     return data
 
 
@@ -172,11 +202,21 @@ class McpToolServer:
 
     @property
     def address(self) -> str | None:
-        """A human-readable description of where the server lives (for spans and output)."""
-        if isinstance(self._target, StdioServerConfig):
-            return " ".join([self._target.command, *self._target.args])
-        if isinstance(self._target, HttpServerConfig):
-            return self._target.url
+        """Where the server lives, safe to print and to export on spans.
+
+        Stdio commands are shown as written in the config (``${VAR}`` references intact)
+        when one was loaded, and URLs are stripped of userinfo and query strings.
+        """
+        target = self._target
+        if isinstance(target, StdioServerConfig):
+            document = target.document
+            if document is not None:
+                command = str(document.get("command", target.command))
+                args = [str(a) for a in document.get("args", [])]
+                return " ".join([command, *args])
+            return " ".join([target.command, *target.args])
+        if isinstance(target, HttpServerConfig):
+            return safe_url(target.url)
         return None
 
     async def __aenter__(self) -> McpToolServer:

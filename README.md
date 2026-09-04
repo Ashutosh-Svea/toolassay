@@ -239,7 +239,10 @@ headers:
 
 `${NAME}` expands from the environment; a missing variable is an error, so a config can
 never silently send an empty token. `${TOOLASSAY_PYTHON}` is built in and expands to the
-interpreter running toolassay. Header and env values are masked in the artifact.
+interpreter running toolassay. Put secrets behind `${NAME}` references: the artifact and
+the spans carry the config as written, with the references intact, header and env values
+masked, and URLs stripped of userinfo and query strings. A secret typed straight into the
+file would be stored as typed.
 
 `toolassay tools --server server.yaml` prints what the server advertises, which is a
 quick way to read a contract the way the model will.
@@ -269,11 +272,18 @@ a fail rather than a pass. Runs without `--judge` never touch the judge code.
 
 `toolassay diff baseline.json candidate.json` compares the two runs case by case and
 reports pass/fail transitions, turn deltas, token deltas, and cost deltas. It then checks
-two gates over the cases both runs share:
+four gates:
 
-- `--max-pass-rate-drop` (default `0`, in percentage points).
-- `--max-cost-increase` (default `0%`): a percentage of the baseline cost, or an absolute
-  amount in USD such as `0.05`. `--no-cost-gate` skips it.
+- `--max-regressions` (default `0`): cases that passed in the baseline and fail in the
+  candidate. This is per case, so a newly fixed case can never hide a newly broken one
+  behind an unchanged pass rate.
+- Missing cases: a baseline case absent from the candidate fails the gate unless you pass
+  `--allow-missing-cases`, because a deleted failing case would otherwise look like an
+  improvement.
+- `--max-pass-rate-drop` (default `0`, in percentage points), over the cases both runs
+  share.
+- `--max-cost-increase` (default `0%`): a percentage of the baseline cost over the shared
+  cases, or an absolute amount in USD such as `0.05`. `--no-cost-gate` skips it.
 
 Any violation exits with status 1 and a sentence naming the gate and the numbers. Case ids
 present in only one run are listed and left out of the totals. `--json` prints the report
@@ -309,7 +319,8 @@ content.
 The Anthropic adapter is the first one and the reference for the interface. It uses the
 official `anthropic` SDK, defaults to `claude-opus-5`, sends every discovered tool as a
 tool definition with `strict: true` and `additionalProperties: false` on every object in
-the schema, reads tool calls from `tool_use` content blocks, loops while `stop_reason`
+the schema (falling back to non-strict for a tool whose schema already allows extra
+properties), reads tool calls from `tool_use` content blocks, loops while `stop_reason`
 is `tool_use`, and takes token counts from `response.usage`. Tool selection is not a hard
 reasoning task, so the default `output_config` effort is `low`; `--effort` changes it.
 `--no-strict` sends schemas exactly as the server published them.
@@ -346,9 +357,12 @@ Where a choice was open, the simpler option won. The ones that shape results:
   right still marks `args_correct` false, because the contract made the model get it
   wrong first. The `completed` flag still records that the task finished.
 - **Strict schemas change one thing.** Only `additionalProperties: false` is added, so the
-  model sees the contract as the server wrote it. If the API rejects a schema feature,
-  the error surfaces and `--no-strict` is the escape hatch.
-- **Both gates default to zero tolerance.** Any regression fails unless you say how much
+  model sees the contract as the server wrote it. A schema that already allows extra
+  properties somewhere (a dict-typed parameter, say) cannot be closed without changing
+  its meaning, so that tool is sent without `strict`, the run says so, and the artifact
+  lists it under `relaxed_tools`. If the API rejects a schema feature outright, the run
+  stops with a hint, and `--no-strict` is the escape hatch.
+- **Every gate defaults to zero tolerance.** Any regression fails unless you say how much
   you will accept. `--max-cost-increase 10%` is the usual CI setting given run-to-run
   token noise.
 - **The judge is opt-in and kept apart.** Deterministic runs stay reproducible; judge

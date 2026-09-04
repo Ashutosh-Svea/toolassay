@@ -74,6 +74,8 @@ class RunArtifact(BaseModel):
     effort: str | None = None
     max_tokens: int | None = None
     strict_tools: bool = False
+    relaxed_tools: list[str] = Field(default_factory=list)
+    """Tools the adapter had to send without strict validation."""
     server: dict[str, Any]
     cases_path: str
     judge_model: str | None = None

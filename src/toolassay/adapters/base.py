@@ -55,6 +55,8 @@ class ModelAdapter(ABC):
     """Output token cap actually in use, recorded in the artifact and on chat spans."""
     strict_tools: bool = False
     """Whether tool schemas were sent with strict validation, recorded in the artifact."""
+    relaxed_tools: tuple[str, ...] = ()
+    """Tools sent without strict validation because their schema cannot be expressed strictly."""
 
     @abstractmethod
     def start(self, *, system: str | None, tools: Sequence[ToolDefinition]) -> Conversation:
