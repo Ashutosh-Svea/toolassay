@@ -56,6 +56,29 @@ def test_validate_example_cases(examples_dir: Path) -> None:
     assert "7 cases valid" in result.output
 
 
+def test_validate_does_not_wrap_long_paths(examples_dir: Path, tmp_path: Path) -> None:
+    """A long case-file path must not push the summary across a line break.
+
+    Regression test. Rich hard-wraps at the console width (80 when stdout is not a tty),
+    which split the summary mid-phrase and mangled the path. It only showed up in CI,
+    because a runner path is a few characters longer than a laptop one, so the wrap
+    landed inside "7 cases valid" there and after it locally. Building the path here
+    makes the failure deterministic on any machine.
+    """
+    deep = tmp_path / ("d" * 120)
+    deep.mkdir()
+    target = deep / "cases.yaml"
+    target.write_text((examples_dir / "cases.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    assert len(str(target)) > 80, "path must exceed the console width for this to test anything"
+
+    result = runner.invoke(app, ["validate", "--cases", str(target)])
+
+    assert result.exit_code == 0, result.output
+    assert "7 cases valid" in result.output
+    assert str(target) in result.output, "the path itself must survive intact"
+    assert result.output.count("\n") == 1, f"expected a single unwrapped line: {result.output!r}"
+
+
 def test_validate_reports_errors(tmp_path: Path) -> None:
     path = tmp_path / "bad.yaml"
     path.write_text("cases:\n- id: a\n", encoding="utf-8")

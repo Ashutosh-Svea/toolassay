@@ -234,7 +234,7 @@ def run(
             "[yellow]note:[/] sent without strict validation because their schema allows "
             f"additional properties: {', '.join(artifact.relaxed_tools)}"
         )
-    console.print(f"wrote {out}")
+    console.print(f"wrote {out}", soft_wrap=True)
     if fail_under is not None and artifact.summary.pass_rate * 100 < fail_under:
         errors.print(
             f"[red]pass rate {artifact.summary.pass_rate:.0%} is below --fail-under "
@@ -349,7 +349,14 @@ def validate(
     except ConfigError as exc:
         raise _fail(str(exc)) from None
     with_judge = sum(1 for c in case_file.cases if c.judge)
-    console.print(f"{cases}: {len(case_file.cases)} cases valid ({with_judge} with a judge rubric)")
+    # soft_wrap because this line carries a user-supplied path. Rich otherwise hard-wraps
+    # at the console width (80 when stdout is not a tty), splitting mid-token: it turns
+    # "cases.yaml" into "cases.\nyaml" and breaks copy-paste. Where the wrap lands depends
+    # on how long the path is, which is why CI saw a different line break than a laptop.
+    console.print(
+        f"{cases}: {len(case_file.cases)} cases valid ({with_judge} with a judge rubric)",
+        soft_wrap=True,
+    )
 
 
 if __name__ == "__main__":
